@@ -1,4 +1,4 @@
-const JSONBIN_API_KEY = "";
+const JSONBIN_API_KEY = "$2a$10$t.w0IFUt81SSh6ILkJZ1Re4nbiMFQcSdp7ZGS5gEA7/HpuG.aljZm";
 const JSONBIN_API = "https://api.jsonbin.io/v3/b";
 const PER = 3;
 const LS_PREFIX = "wc26:";

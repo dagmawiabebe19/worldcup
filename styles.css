@@ -293,14 +293,16 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
 .remaining { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
 .remaining .pill { opacity: 0.82; }
 
-details { margin-top: 12px; }
+.remaining-section { margin-top: 16px; }
 
-summary {
-  cursor: pointer;
-  color: var(--gold);
-  font-size: 13px;
-  font-weight: 600;
+.remaining-title {
+  font-family: "Anton", sans-serif;
+  font-weight: 400;
+  text-transform: uppercase;
   letter-spacing: 0.04em;
+  font-size: 14px;
+  color: var(--gold);
+  margin: 0 0 10px;
 }
 
 .footnote {
