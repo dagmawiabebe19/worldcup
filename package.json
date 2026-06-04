@@ -1,0 +1,7 @@
+{
+  "name": "worldcup-draw",
+  "private": true,
+  "scripts": {
+    "dev": "npx serve ."
+  }
+}

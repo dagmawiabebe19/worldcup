@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Meet the Bandwagons — World Cup 2026 Draw</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Anton&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <div class="kicker">World Cup 2026 &middot; The Draw</div>
+      <h1>Meet the<br />Bandwagons</h1>
+      <p class="sub" id="tagline">Loading the hat&hellip;</p>
+    </header>
+
+    <div class="card" id="drawCard">
+      <h2>Draw your teams</h2>
+      <p class="hint">Type your name exactly how your group knows you, then pull from the hat. One draw per person &mdash; no take-backs.</p>
+      <div class="row">
+        <div>
+          <label for="nameInput">Your name</label>
+          <input type="text" id="nameInput" placeholder="e.g. Sam" autocomplete="off" maxlength="24" />
+        </div>
+        <div style="flex:0 0 auto">
+          <button class="btn-gold" id="drawBtn" type="button">Pull from the hat</button>
+        </div>
+      </div>
+      <div id="reveal">
+        <p class="hint" id="revealLabel" style="margin-top:18px"></p>
+        <div class="reveal-grid" id="revealGrid"></div>
+      </div>
+    </div>
+
+    <div class="card" id="boardCard">
+      <div class="board-head">
+        <div class="stat">
+          <div><b id="statPlayers">0</b>players in</div>
+          <div><b class="gold" id="statRemaining">48</b>teams left</div>
+          <div><b id="statPer">3</b>per person</div>
+        </div>
+        <button class="btn-ghost" id="refreshBtn" type="button">Refresh</button>
+      </div>
+
+      <div id="playerList"></div>
+
+      <details>
+        <summary id="remainingSummary">Still in the hat</summary>
+        <div class="remaining" id="remainingList"></div>
+      </details>
+
+      <div style="margin-top:18px; text-align:right">
+        <button class="btn-danger" id="resetBtn" type="button">Reset everything</button>
+      </div>
+    </div>
+
+    <p class="footnote">
+      Everyone with this link shares one live board &mdash; what you draw, everyone sees.<br />
+      Share the URL (with the # code) so your group joins the same hat. No sign-ins. 🏆
+    </p>
+  </div>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <canvas id="confetti" aria-hidden="true"></canvas>
+
+  <script src="app.js"></script>
+</body>
+</html>
