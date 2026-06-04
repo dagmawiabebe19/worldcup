@@ -4,7 +4,7 @@ const PER = 3;
 const MAX_SLOTS = 16;
 const LS_PREFIX = "wc26:";
 const ADMIN_SECRET = "dagworldcup20206";
-const ADMIN_LS_KEY = "wc26:admin";
+const ADMIN_LS_KEY = "isAdmin";
 
 const TEAMS = [
   ["France", "fr", "I", 1], ["Spain", "es", "H", 2], ["Argentina", "ar", "J", 3], ["England", "gb-eng", "L", 4],
@@ -90,17 +90,23 @@ function setHashBinId(id) {
 }
 
 function checkAdminFromHash() {
-  if (parseHash().adminTrigger) {
-    localStorage.setItem(ADMIN_LS_KEY, "1");
+  const hash = location.hash.slice(1);
+  if (hash.includes(`admin=${ADMIN_SECRET}`)) {
+    localStorage.setItem(ADMIN_LS_KEY, "true");
   }
 }
 
 function isAdmin() {
-  return localStorage.getItem(ADMIN_LS_KEY) === "1";
+  return localStorage.getItem(ADMIN_LS_KEY) === "true";
 }
 
 function applyAdminUI() {
-  document.body.classList.toggle("is-admin", isAdmin());
+  const admin = isAdmin();
+  document.body.classList.toggle("is-admin", admin);
+
+  $("openHatBtn")?.classList.toggle("hidden", !admin);
+  $("resetBtn")?.classList.toggle("hidden", !admin);
+  document.querySelector(".admin-actions")?.classList.toggle("hidden", !admin);
 }
 
 function toast(msg) {
@@ -389,6 +395,8 @@ function applyPhaseUI(state) {
     renderSlotLadder(state, state.players);
     renderTeamBoard(state);
   }
+
+  applyAdminUI();
 }
 
 function updateDrawButton(state) {
