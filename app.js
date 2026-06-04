@@ -4,7 +4,6 @@ const PER = 3;
 const MAX_SLOTS = 16;
 const LS_PREFIX = "wc26:";
 const ADMIN_SECRET = "dagworldcup20206";
-const ADMIN_LS_KEY = "isAdmin";
 
 const TEAMS = [
   ["France", "fr", "I", 1], ["Spain", "es", "H", 2], ["Argentina", "ar", "J", 3], ["England", "gb-eng", "L", 4],
@@ -89,15 +88,8 @@ function setHashBinId(id) {
   binId = id;
 }
 
-function checkAdminFromHash() {
-  const hash = location.hash.slice(1);
-  if (hash.includes(`admin=${ADMIN_SECRET}`)) {
-    localStorage.setItem(ADMIN_LS_KEY, "true");
-  }
-}
-
 function isAdmin() {
-  return localStorage.getItem(ADMIN_LS_KEY) === "true";
+  return location.hash.slice(1).includes(`admin=${ADMIN_SECRET}`);
 }
 
 function applyAdminUI() {
@@ -735,7 +727,6 @@ function confettiBurst() {
 }
 
 async function boot() {
-  checkAdminFromHash();
   applyAdminUI();
 
   if (MY_NAME) $("nameInput").value = MY_NAME;
@@ -763,7 +754,6 @@ $("nameInput").addEventListener("input", async () => {
 $("nameInput").addEventListener("keydown", (e) => { if (e.key === "Enter") doDraw(); });
 
 window.addEventListener("hashchange", async () => {
-  checkAdminFromHash();
   applyAdminUI();
   const { binId: id } = parseHash();
   if (id && id !== binId) {
