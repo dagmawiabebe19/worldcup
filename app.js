@@ -1,7 +1,10 @@
 const JSONBIN_API_KEY = "$2a$10$t.w0IFUt81SSh6ILkJZ1Re4nbiMFQcSdp7ZGS5gEA7/HpuG.aljZm";
 const JSONBIN_API = "https://api.jsonbin.io/v3/b";
 const PER = 3;
+const MAX_SLOTS = 16;
 const LS_PREFIX = "wc26:";
+const ADMIN_SECRET = "dagworldcup20206";
+const ADMIN_LS_KEY = "wc26:admin";
 
 const TEAMS = [
   ["France", "fr", "I", 1], ["Spain", "es", "H", 2], ["Argentina", "ar", "J", 3], ["England", "gb-eng", "L", 4],
@@ -37,6 +40,69 @@ function keyFor(name) {
   return name.trim().toLowerCase().replace(/\s+/g, " ");
 }
 
+function defaultState() {
+  return { phase: "slots", slots: [], players: [] };
+}
+
+function normalizeState(raw) {
+  if (!raw || typeof raw !== "object") return defaultState();
+  return {
+    phase: raw.phase === "teams" ? "teams" : "slots",
+    slots: Array.isArray(raw.slots) ? raw.slots : [],
+    players: Array.isArray(raw.players) ? raw.players : []
+  };
+}
+
+function parseHash() {
+  const raw = location.hash.slice(1).trim();
+  if (!raw) return { binId: null, adminTrigger: false };
+
+  let binId = null;
+  let adminTrigger = false;
+
+  for (const part of raw.split("&")) {
+    if (part.startsWith("admin=")) {
+      adminTrigger = decodeURIComponent(part.slice(6)) === ADMIN_SECRET;
+    } else if (!part.includes("=")) {
+      binId = part;
+    }
+  }
+
+  if (!raw.includes("&") && raw.startsWith("admin=")) {
+    adminTrigger = decodeURIComponent(raw.slice(6)) === ADMIN_SECRET;
+  } else if (!raw.includes("&") && !raw.includes("=")) {
+    binId = raw;
+  }
+
+  return { binId, adminTrigger };
+}
+
+function getHashBinId() {
+  return parseHash().binId;
+}
+
+function setHashBinId(id) {
+  const { adminTrigger } = parseHash();
+  const suffix = adminTrigger ? `&admin=${ADMIN_SECRET}` : "";
+  const next = `#${id}${suffix}`;
+  if (location.hash !== next) history.replaceState(null, "", next);
+  binId = id;
+}
+
+function checkAdminFromHash() {
+  if (parseHash().adminTrigger) {
+    localStorage.setItem(ADMIN_LS_KEY, "1");
+  }
+}
+
+function isAdmin() {
+  return localStorage.getItem(ADMIN_LS_KEY) === "1";
+}
+
+function applyAdminUI() {
+  document.body.classList.toggle("is-admin", isAdmin());
+}
+
 function toast(msg) {
   const t = $("toast");
   t.textContent = msg;
@@ -61,6 +127,12 @@ function takenSet(players) {
   return s;
 }
 
+function slotMap(slots) {
+  const m = new Map();
+  slots.forEach((s) => m.set(s.slot, s));
+  return m;
+}
+
 function lsKey() {
   return LS_PREFIX + binId;
 }
@@ -68,10 +140,10 @@ function lsKey() {
 function readLocalState() {
   try {
     const raw = localStorage.getItem(lsKey());
-    if (!raw) return { players: [] };
-    return JSON.parse(raw);
+    if (!raw) return defaultState();
+    return normalizeState(JSON.parse(raw));
   } catch {
-    return { players: [] };
+    return defaultState();
   }
 }
 
@@ -97,17 +169,6 @@ async function jsonbinRequest(path, options = {}) {
   return body;
 }
 
-function getHashBinId() {
-  return location.hash.replace(/^#/, "").trim();
-}
-
-function setHashBinId(id) {
-  if (getHashBinId() !== id) {
-    history.replaceState(null, "", `#${id}`);
-  }
-  binId = id;
-}
-
 function newLocalBinId() {
   return crypto.randomUUID().replace(/-/g, "").slice(0, 24);
 }
@@ -130,84 +191,45 @@ async function createRemoteBin() {
       "X-Bin-Private": "false",
       "X-Bin-Name": "WC26 Bandwagon Draw"
     }),
-    body: JSON.stringify({ players: [] })
+    body: JSON.stringify(defaultState())
   });
   return data.metadata.id;
 }
 
-async function loadPlayers() {
+async function loadState() {
   if (useLocalOnly) {
-    return (readLocalState().players || []).sort((a, b) => (a.ts || 0) - (b.ts || 0));
+    return readLocalState();
   }
 
   const data = await jsonbinRequest(`/${binId}/latest`, {
     headers: jsonbinHeaders()
   });
-  const players = data.record?.players || [];
-  return players.sort((a, b) => (a.ts || 0) - (b.ts || 0));
+  return normalizeState(data.record);
 }
 
-async function savePlayers(players) {
+async function saveState(state) {
+  const payload = normalizeState(state);
   if (useLocalOnly) {
-    writeLocalState({ players });
+    writeLocalState(payload);
     return;
   }
 
   await jsonbinRequest(`/${binId}`, {
     method: "PUT",
     headers: jsonbinHeaders(),
-    body: JSON.stringify({ players })
+    body: JSON.stringify(payload)
   });
   notifyPeers();
 }
 
-function renderBoard(players) {
-  const taken = takenSet(players);
-  const remaining = TEAMS.filter((t) => !taken.has(t.code));
-
-  $("statPlayers").textContent = players.length;
-  $("statRemaining").textContent = remaining.length;
-  $("statPer").textContent = PER;
-
-  const list = $("playerList");
-  if (!players.length) {
-    list.innerHTML = '<div class="empty">No one has drawn yet. Be the first to open the hat. 🎩</div>';
-  } else {
-    list.innerHTML = players.map((p) => {
-      const chips = (p.teams || []).map((c) => {
-        const t = byCode[c];
-        if (!t) return "";
-        return `<span class="pill"><span class="fl">${flag(t.code)}</span>${t.name}</span>`;
-      }).join("");
-      const me = MY_NAME && keyFor(p.name) === keyFor(MY_NAME) ? " — you" : "";
-      return `<div class="player">
-        <div class="who">${escapeHtml(p.name)}<span>${(p.teams || []).length} teams${me}</span></div>
-        <div class="teams">${chips}</div>
-      </div>`;
-    }).join("");
+function pickRandomSlot(slots) {
+  const taken = new Set(slots.map((s) => s.slot));
+  const pool = [];
+  for (let n = 1; n <= MAX_SLOTS; n++) {
+    if (!taken.has(n)) pool.push(n);
   }
-
-  $("remainingSummary").textContent = `Still in the hat (${remaining.length})`;
-  $("remainingList").innerHTML = remaining.length
-    ? remaining.sort((a, b) => a.rank - b.rank).map((t) =>
-      `<span class="pill"><span class="fl">${flag(t.code)}</span>${t.name}</span>`).join("")
-    : '<div class="empty">Empty — every team has been drawn. 🟢</div>';
-}
-
-function showReveal(teams, label) {
-  const r = $("reveal");
-  const g = $("revealGrid");
-  $("revealLabel").textContent = label;
-  g.innerHTML = teams.map((c, i) => {
-    const t = byCode[c];
-    return `<div class="team-card" style="animation-delay:${i * 0.14}s">
-      <div class="fl-big">${flag(t.code)}</div>
-      <div class="name">${t.name}</div>
-      <div class="meta">FIFA #${t.rank}</div>
-      <div class="grp">Group ${t.group}</div>
-    </div>`;
-  }).join("");
-  r.style.display = "block";
+  if (!pool.length) return null;
+  return pool[Math.floor(Math.random() * pool.length)];
 }
 
 function pickTeams(players) {
@@ -220,7 +242,192 @@ function pickTeams(players) {
   return pool.slice(0, Math.min(PER, pool.length));
 }
 
-async function doDraw() {
+function findSlotHolder(slots, name) {
+  return slots.find((s) => keyFor(s.name) === keyFor(name));
+}
+
+function nextUndrawnSlot(slots, players) {
+  const drawn = new Set(players.map((p) => keyFor(p.name)));
+  for (let n = 1; n <= MAX_SLOTS; n++) {
+    const holder = slots.find((s) => s.slot === n);
+    if (holder && !drawn.has(keyFor(holder.name))) return n;
+  }
+  return null;
+}
+
+function renderSlotBoard(state) {
+  const map = slotMap(state.slots);
+  const rows = [];
+  for (let n = 1; n <= MAX_SLOTS; n++) {
+    const entry = map.get(n);
+    const me = entry && MY_NAME && keyFor(entry.name) === keyFor(MY_NAME) ? " — you" : "";
+    rows.push(`<div class="slot-entry">
+      <span class="slot-num">Slot ${n}</span>
+      <span class="slot-name${entry ? "" : " empty"}">${entry ? escapeHtml(entry.name) + me : "—"}</span>
+    </div>`);
+  }
+  $("slotList").innerHTML = rows.join("");
+
+  const filled = state.slots.length;
+  $("statSlotsFilled").textContent = filled;
+  $("statSlotsLeft").textContent = MAX_SLOTS - filled;
+}
+
+function renderSlotLadder(state, players) {
+  const map = slotMap(state.slots);
+  const current = nextUndrawnSlot(state.slots, players);
+  const drawn = new Set(players.map((p) => keyFor(p.name)));
+
+  $("slotLadder").innerHTML = Array.from({ length: MAX_SLOTS }, (_, i) => {
+    const n = i + 1;
+    const entry = map.get(n);
+    const name = entry ? escapeHtml(entry.name) : "—";
+    const classes = ["slot-row"];
+    if (entry && MY_NAME && keyFor(entry.name) === keyFor(MY_NAME)) classes.push("is-me");
+    if (n === current) classes.push("is-current");
+    const done = entry && drawn.has(keyFor(entry.name));
+    return `<div class="${classes.join(" ")}">
+      <span class="slot-num">${n}</span>
+      <span class="slot-name${entry ? "" : " empty"}">${name}${done ? " ✓" : ""}</span>
+    </div>`;
+  }).join("");
+}
+
+function renderTeamBoard(state) {
+  const players = state.players.sort((a, b) => (a.ts || 0) - (b.ts || 0));
+  const taken = takenSet(players);
+  const remaining = TEAMS.filter((t) => !taken.has(t.code));
+
+  $("statPlayers").textContent = players.length;
+  $("statRemaining").textContent = remaining.length;
+  $("statPer").textContent = PER;
+
+  const list = $("playerList");
+  if (!players.length) {
+    list.innerHTML = '<div class="empty">No teams drawn yet. Slot 1 goes first!</div>';
+  } else {
+    list.innerHTML = players.map((p) => {
+      const holder = findSlotHolder(state.slots, p.name);
+      const slotLabel = holder ? `Slot ${holder.slot}` : "";
+      const chips = (p.teams || []).map((c) => {
+        const t = byCode[c];
+        if (!t) return "";
+        return `<span class="pill"><span class="fl">${flag(t.code)}</span>${t.name}</span>`;
+      }).join("");
+      const me = MY_NAME && keyFor(p.name) === keyFor(MY_NAME) ? " — you" : "";
+      return `<div class="player">
+        <div class="who">${escapeHtml(p.name)}<span>${slotLabel}${me}</span></div>
+        <div class="teams">${chips}</div>
+      </div>`;
+    }).join("");
+  }
+
+  $("remainingSummary").textContent = `Still in the hat (${remaining.length})`;
+  $("remainingList").innerHTML = remaining.length
+    ? remaining.sort((a, b) => a.rank - b.rank).map((t) =>
+      `<span class="pill"><span class="fl">${flag(t.code)}</span>${t.name}</span>`).join("")
+    : '<div class="empty">Empty — every team has been drawn. 🟢</div>';
+}
+
+function showSlotReveal(slotNum, name) {
+  $("revealGrid").innerHTML = `<div class="slot-reveal-card">
+    <div class="meta">Your slot</div>
+    <div class="big">${slotNum}</div>
+    <div class="name">${escapeHtml(name)}</div>
+  </div>`;
+  $("reveal").style.display = "block";
+}
+
+function showReveal(teams, label) {
+  $("revealLabel").textContent = label;
+  $("revealGrid").innerHTML = teams.map((c, i) => {
+    const t = byCode[c];
+    return `<div class="team-card" style="animation-delay:${i * 0.14}s">
+      <div class="fl-big">${flag(t.code)}</div>
+      <div class="name">${t.name}</div>
+      <div class="meta">FIFA #${t.rank}</div>
+      <div class="grp">Group ${t.group}</div>
+    </div>`;
+  }).join("");
+  $("reveal").style.display = "block";
+}
+
+function hideReveal() {
+  $("reveal").style.display = "none";
+  $("revealGrid").innerHTML = "";
+  $("revealLabel").textContent = "";
+}
+
+function applyPhaseUI(state) {
+  const isSlots = state.phase === "slots";
+  const allSlotsFilled = state.slots.length >= MAX_SLOTS;
+
+  $("phaseKicker").textContent = isSlots
+    ? "World Cup 2026 · Slot Draw"
+    : "World Cup 2026 · Team Draw";
+
+  $("tagline").innerHTML = isSlots
+    ? "Pick your draw order &middot; <b>16</b> slots"
+    : "48 teams in the hat &middot; <b>3</b> each &middot; follow the slot order";
+
+  $("drawTitle").textContent = isSlots ? "Draw your slot" : "Draw your teams";
+  $("drawHint").textContent = isSlots
+    ? "Enter your name and draw a random slot (1–16). One slot per person."
+    : "Enter the name on your slot, then pull 3 teams when it's your turn.";
+
+  $("statSlots").classList.toggle("hidden", !isSlots);
+  $("statTeams").classList.toggle("hidden", isSlots);
+  $("slotList").classList.toggle("hidden", !isSlots);
+  $("playerList").classList.toggle("hidden", isSlots);
+  $("remainingSection").classList.toggle("hidden", isSlots);
+  $("slotOrderCard").classList.toggle("hidden", isSlots);
+  $("readyBanner").classList.toggle("hidden", !(isSlots && allSlotsFilled));
+
+  if (isSlots) {
+    renderSlotBoard(state);
+  } else {
+    renderSlotLadder(state, state.players);
+    renderTeamBoard(state);
+  }
+}
+
+function updateDrawButton(state) {
+  const btn = $("drawBtn");
+  const name = $("nameInput").value.trim();
+
+  if (state.phase === "slots") {
+    btn.textContent = "Draw a slot";
+    const mine = state.slots.find((s) => keyFor(s.name) === keyFor(name || MY_NAME || ""));
+    if (mine || (MY_NAME && state.slots.some((s) => keyFor(s.name) === keyFor(MY_NAME)))) {
+      btn.disabled = true;
+      btn.textContent = "Slot claimed ✓";
+    } else {
+      btn.disabled = state.slots.length >= MAX_SLOTS;
+      btn.textContent = state.slots.length >= MAX_SLOTS ? "All slots taken" : "Draw a slot";
+    }
+    return;
+  }
+
+  btn.textContent = "Pull from the hat";
+  const holder = findSlotHolder(state.slots, name || MY_NAME || "");
+  if (!holder) {
+    btn.disabled = !name;
+    return;
+  }
+
+  const mine = state.players.find((p) => keyFor(p.name) === keyFor(holder.name));
+  if (mine) {
+    btn.disabled = true;
+    btn.textContent = "Already drawn ✓";
+  } else {
+    const current = nextUndrawnSlot(state.slots, state.players);
+    const isTurn = current === holder.slot;
+    btn.disabled = !isTurn;
+    btn.textContent = isTurn ? "Pull from the hat" : `Wait — Slot ${current} is up`;
+  }
+}
+
+async function doSlotDraw() {
   const name = $("nameInput").value.trim();
   if (!name) {
     toast("Enter your name first.");
@@ -233,23 +440,103 @@ async function doDraw() {
 
   const btn = $("drawBtn");
   btn.disabled = true;
+  btn.innerHTML = '<span class="spin"></span>Drawing…';
+
+  try {
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const state = await loadState();
+      if (state.phase !== "slots") {
+        toast("Slot draw is closed — team draw has started.");
+        await refresh();
+        return;
+      }
+
+      if (state.slots.some((s) => keyFor(s.name) === keyFor(name))) {
+        const mine = state.slots.find((s) => keyFor(s.name) === keyFor(name));
+        MY_NAME = mine.name;
+        localStorage.setItem("wc26:name", mine.name);
+        showSlotReveal(mine.slot, mine.name);
+        toast("You already have a slot!");
+        await refresh();
+        return;
+      }
+
+      const slotNum = pickRandomSlot(state.slots);
+      if (!slotNum) {
+        toast("All slots are taken!");
+        btn.disabled = false;
+        btn.textContent = "All slots taken";
+        return;
+      }
+
+      const record = { slot: slotNum, name, ts: Date.now() };
+      const next = { ...state, slots: [...state.slots, record] };
+      await saveState(next);
+
+      const verify = await loadState();
+      const saved = verify.slots.find((s) => keyFor(s.name) === keyFor(name));
+      if (saved && saved.slot === slotNum) {
+        MY_NAME = name;
+        localStorage.setItem("wc26:name", name);
+        showSlotReveal(slotNum, name);
+        confettiBurst();
+        await refresh();
+        return;
+      }
+    }
+
+    toast("Draw collision — try again.");
+    btn.disabled = false;
+    btn.textContent = "Draw a slot";
+  } catch (e) {
+    console.error(e);
+    toast("Something went wrong — try again.");
+    btn.disabled = false;
+    btn.textContent = "Draw a slot";
+  }
+}
+
+async function doTeamDraw() {
+  const name = $("nameInput").value.trim();
+  if (!name) {
+    toast("Enter your name first.");
+    return;
+  }
+
+  const btn = $("drawBtn");
+  btn.disabled = true;
   btn.innerHTML = '<span class="spin"></span>Reaching in…';
 
   try {
     for (let attempt = 0; attempt < 5; attempt++) {
-      const players = await loadPlayers();
-      const mine = players.find((p) => keyFor(p.name) === keyFor(name));
+      const state = await loadState();
+      const holder = findSlotHolder(state.slots, name);
+      if (!holder) {
+        toast("That name isn't on the slot list.");
+        btn.disabled = false;
+        btn.textContent = "Pull from the hat";
+        return;
+      }
+
+      const current = nextUndrawnSlot(state.slots, state.players);
+      if (current !== holder.slot) {
+        toast(`Not your turn yet — Slot ${current} draws next.`);
+        btn.disabled = false;
+        btn.textContent = `Wait — Slot ${current} is up`;
+        return;
+      }
+
+      const mine = state.players.find((p) => keyFor(p.name) === keyFor(holder.name));
       if (mine) {
         MY_NAME = mine.name;
         localStorage.setItem("wc26:name", mine.name);
         showReveal(mine.teams, `${mine.name}, you already drew these:`);
-        renderBoard(players);
-        btn.textContent = "Already drawn ✓";
         toast("You've already drawn — no take-backs!");
+        await refresh();
         return;
       }
 
-      const picked = pickTeams(players);
+      const picked = pickTeams(state.players);
       if (!picked.length) {
         toast("The hat is empty!");
         btn.disabled = false;
@@ -257,19 +544,18 @@ async function doDraw() {
         return;
       }
 
-      const record = { name, teams: picked, ts: Date.now() };
-      const next = [...players, record];
-      await savePlayers(next);
+      const record = { name: holder.name, teams: picked, ts: Date.now() };
+      const next = { ...state, players: [...state.players, record] };
+      await saveState(next);
 
-      const verify = await loadPlayers();
-      const saved = verify.find((p) => keyFor(p.name) === keyFor(name));
+      const verify = await loadState();
+      const saved = verify.players.find((p) => keyFor(p.name) === keyFor(holder.name));
       if (saved && saved.teams.join() === picked.join()) {
-        MY_NAME = name;
-        localStorage.setItem("wc26:name", name);
-        showReveal(picked, `${name}, the hat gave you:`);
+        MY_NAME = holder.name;
+        localStorage.setItem("wc26:name", holder.name);
+        showReveal(picked, `${holder.name}, the hat gave you:`);
         confettiBurst();
-        renderBoard(verify);
-        btn.textContent = "Already drawn ✓";
+        await refresh();
         return;
       }
     }
@@ -285,19 +571,52 @@ async function doDraw() {
   }
 }
 
-async function resetAll() {
-  if (!confirm("Wipe ALL draws for everyone? This can't be undone.")) return;
+async function doDraw() {
+  const state = await loadState();
+  if (state.phase === "slots") await doSlotDraw();
+  else await doTeamDraw();
+}
+
+async function openHat() {
+  if (!isAdmin()) {
+    toast("Admin only.");
+    return;
+  }
+
+  const state = await loadState();
+  if (state.slots.length < MAX_SLOTS) {
+    toast("All 16 slots must be filled first.");
+    return;
+  }
+
+  if (!confirm("Open the hat and start the team draw for everyone?")) return;
 
   try {
-    await savePlayers([]);
+    await saveState({ ...state, phase: "teams" });
+    hideReveal();
+    toast("Team draw is live!");
+    await refresh();
+  } catch (e) {
+    console.error(e);
+    toast("Couldn't start team draw.");
+  }
+}
+
+async function resetAll() {
+  if (!isAdmin()) {
+    toast("Admin only.");
+    return;
+  }
+  if (!confirm("Wipe ALL slots and team draws for everyone? This can't be undone.")) return;
+
+  try {
+    await saveState(defaultState());
     MY_NAME = null;
     localStorage.removeItem("wc26:name");
-    $("reveal").style.display = "none";
+    hideReveal();
     $("nameInput").value = "";
-    $("drawBtn").disabled = false;
-    $("drawBtn").textContent = "Pull from the hat";
     await refresh();
-    toast("Reset done. Fresh hat.");
+    toast("Reset done. Fresh draw.");
   } catch (e) {
     console.error(e);
     toast("Reset failed — try again.");
@@ -306,16 +625,20 @@ async function resetAll() {
 
 async function refresh() {
   try {
-    const players = await loadPlayers();
-    if (MY_NAME) {
-      const me = players.find((p) => keyFor(p.name) === keyFor(MY_NAME));
-      if (me) {
-        $("nameInput").value = me.name;
-        $("drawBtn").disabled = true;
-        $("drawBtn").textContent = "Already drawn ✓";
-      }
+    const state = await loadState();
+    applyPhaseUI(state);
+
+    if (MY_NAME) $("nameInput").value = MY_NAME;
+
+    if (state.phase === "slots") {
+      const mine = state.slots.find((s) => keyFor(s.name) === keyFor(MY_NAME || ""));
+      if (mine) showSlotReveal(mine.slot, mine.name);
+    } else {
+      const mine = state.players.find((p) => keyFor(p.name) === keyFor(MY_NAME || ""));
+      if (mine) showReveal(mine.teams, `${mine.name}, you already drew these:`);
     }
-    renderBoard(players);
+
+    updateDrawButton(state);
   } catch (e) {
     console.error(e);
     toast("Couldn't refresh the board.");
@@ -323,12 +646,13 @@ async function refresh() {
 }
 
 async function ensureBin() {
-  const existing = getHashBinId();
+  const { binId: existing } = parseHash();
 
   if (useLocalOnly) {
     binId = existing || newLocalBinId();
     setHashBinId(binId);
-    if (!readLocalState().players) writeLocalState({ players: [] });
+    const local = readLocalState();
+    if (!local.slots && !local.players) writeLocalState(defaultState());
     setupBroadcast();
     return;
   }
@@ -337,14 +661,14 @@ async function ensureBin() {
     binId = existing;
     setupBroadcast();
     try {
-      await loadPlayers();
+      await loadState();
       return;
     } catch (e) {
       console.warn("Shared bin not found, creating a new hat.", e);
     }
   }
 
-  $("tagline").textContent = "Creating a new hat…";
+  $("tagline").textContent = "Creating a new draw…";
   try {
     binId = await createRemoteBin();
     setHashBinId(binId);
@@ -354,7 +678,7 @@ async function ensureBin() {
     useLocalOnly = true;
     binId = existing || newLocalBinId();
     setHashBinId(binId);
-    if (!readLocalState().players) writeLocalState({ players: [] });
+    writeLocalState(defaultState());
     setupBroadcast();
   }
 }
@@ -403,18 +727,18 @@ function confettiBurst() {
 }
 
 async function boot() {
-  $("drawBtn").disabled = false;
-  $("drawBtn").textContent = "Pull from the hat";
+  checkAdminFromHash();
+  applyAdminUI();
+
   if (MY_NAME) $("nameInput").value = MY_NAME;
 
   try {
     await ensureBin();
-    $("tagline").innerHTML = "48 teams in the hat &middot; <b>3</b> each &middot; <b>16</b> bandwagoners";
     await refresh();
     setInterval(refresh, 6000);
   } catch (e) {
     console.error(e);
-    $("tagline").textContent = "Couldn't connect to the hat — refresh to retry.";
+    $("tagline").textContent = "Couldn't connect — refresh to retry.";
     toast("Couldn't connect — check your connection and refresh.");
   }
 }
@@ -422,10 +746,22 @@ async function boot() {
 $("drawBtn").addEventListener("click", doDraw);
 $("refreshBtn").addEventListener("click", () => { refresh(); toast("Board refreshed."); });
 $("resetBtn").addEventListener("click", resetAll);
+$("openHatBtn").addEventListener("click", openHat);
+$("nameInput").addEventListener("input", async () => {
+  try {
+    updateDrawButton(await loadState());
+  } catch { /* ignore */ }
+});
 $("nameInput").addEventListener("keydown", (e) => { if (e.key === "Enter") doDraw(); });
+
 window.addEventListener("hashchange", async () => {
-  binId = getHashBinId();
-  setupBroadcast();
+  checkAdminFromHash();
+  applyAdminUI();
+  const { binId: id } = parseHash();
+  if (id && id !== binId) {
+    binId = id;
+    setupBroadcast();
+  }
   await refresh();
 });
 

@@ -12,21 +12,32 @@
 <body>
   <div class="wrap">
     <header>
-      <div class="kicker">World Cup 2026 &middot; The Draw</div>
+      <div class="kicker" id="phaseKicker">World Cup 2026 &middot; The Draw</div>
       <h1>Meet the<br />Bandwagons</h1>
-      <p class="sub" id="tagline">Loading the hat&hellip;</p>
+      <p class="sub" id="tagline">Loading&hellip;</p>
     </header>
 
+    <div class="ready-banner hidden" id="readyBanner">
+      <p>All slots filled &mdash; ready for the team draw</p>
+      <button class="btn-gold admin-only" id="openHatBtn" type="button">Open the Hat</button>
+    </div>
+
+    <div class="card hidden" id="slotOrderCard">
+      <h2>Draw order</h2>
+      <p class="hint">When it's your turn, draw your 3 teams.</p>
+      <div class="slot-ladder" id="slotLadder"></div>
+    </div>
+
     <div class="card" id="drawCard">
-      <h2>Draw your teams</h2>
-      <p class="hint">Type your name exactly how your group knows you, then pull from the hat. One draw per person &mdash; no take-backs.</p>
+      <h2 id="drawTitle">Draw your slot</h2>
+      <p class="hint" id="drawHint">Enter your name and draw a random slot (1&ndash;16). One slot per person.</p>
       <div class="row">
         <div>
           <label for="nameInput">Your name</label>
           <input type="text" id="nameInput" placeholder="e.g. Sam" autocomplete="off" maxlength="24" />
         </div>
         <div style="flex:0 0 auto">
-          <button class="btn-gold" id="drawBtn" type="button">Pull from the hat</button>
+          <button class="btn-gold" id="drawBtn" type="button">Draw a slot</button>
         </div>
       </div>
       <div id="reveal">
@@ -37,29 +48,34 @@
 
     <div class="card" id="boardCard">
       <div class="board-head">
-        <div class="stat">
-          <div><b id="statPlayers">0</b>players in</div>
+        <div class="stat" id="statSlots">
+          <div><b id="statSlotsFilled">0</b>slots filled</div>
+          <div><b class="gold" id="statSlotsLeft">16</b>left</div>
+        </div>
+        <div class="stat hidden" id="statTeams">
+          <div><b id="statPlayers">0</b>teams drawn</div>
           <div><b class="gold" id="statRemaining">48</b>teams left</div>
           <div><b id="statPer">3</b>per person</div>
         </div>
         <button class="btn-ghost" id="refreshBtn" type="button">Refresh</button>
       </div>
 
-      <div id="playerList"></div>
+      <div id="slotList"></div>
+      <div id="playerList" class="hidden"></div>
 
-      <div class="remaining-section">
+      <div class="remaining-section hidden" id="remainingSection">
         <h3 class="remaining-title" id="remainingSummary">Still in the hat</h3>
         <div class="remaining" id="remainingList"></div>
       </div>
 
-      <div style="margin-top:18px; text-align:right">
-        <button class="btn-danger" id="resetBtn" type="button">Reset everything</button>
+      <div class="admin-actions">
+        <button class="btn-danger admin-only" id="resetBtn" type="button">Reset everything</button>
       </div>
     </div>
 
     <p class="footnote">
-      Everyone with this link shares one live board &mdash; what you draw, everyone sees.<br />
-      Share the URL (with the # code) so your group joins the same hat. No sign-ins. 🏆
+      Everyone with this link shares one live board.<br />
+      Share the URL (with the # code) so your group joins the same draw. No sign-ins. 🏆
     </p>
   </div>
 
