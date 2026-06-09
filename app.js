@@ -1,7 +1,6 @@
 const JSONBIN_API_KEY = "$2a$10$t.w0IFUt81SSh6ILkJZ1Re4nbiMFQcSdp7ZGS5gEA7/HpuG.aljZm";
 const JSONBIN_API = "https://api.jsonbin.io/v3/b";
-const FOOTBALL_DATA_API_KEY = "08ca204a70bc4fdabf71c59366e3c7d1";
-const FOOTBALL_DATA_API = "https://api.football-data.org/v4/competitions/WC/matches";
+const MATCHES_API = "/api/matches";
 const PER = 3;
 const MAX_SLOTS = 16;
 const LS_PREFIX = "wc26:";
@@ -121,9 +120,7 @@ function calculateTeamPoints(matches) {
 
 async function fetchMatchResults() {
   try {
-    const res = await fetch(FOOTBALL_DATA_API, {
-      headers: { "X-Auth-Token": FOOTBALL_DATA_API_KEY }
-    });
+    const res = await fetch(MATCHES_API);
     if (!res.ok) throw new Error(`API ${res.status}`);
     const data = await res.json();
     const matches = data.matches || [];
