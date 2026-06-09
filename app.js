@@ -1,5 +1,7 @@
 const JSONBIN_API_KEY = "$2a$10$t.w0IFUt81SSh6ILkJZ1Re4nbiMFQcSdp7ZGS5gEA7/HpuG.aljZm";
 const JSONBIN_API = "https://api.jsonbin.io/v3/b";
+const FOOTBALL_DATA_API_KEY = "08ca204a70bc4fdabf71c59366e3c7d1";
+const FOOTBALL_DATA_API = "https://api.football-data.org/v4/competitions/WC/matches";
 const PER = 3;
 const MAX_SLOTS = 16;
 const LS_PREFIX = "wc26:";
@@ -23,6 +25,31 @@ const TEAMS = [
 const byCode = Object.fromEntries(TEAMS.map((t) => [t.code, t]));
 const SPECIAL = { "gb-eng": "🏴󠁧󠁢󠁥󠁮󠁧󠁿", "gb-sct": "🏴󠁧󠁢󠁳󠁣󠁴󠁿" };
 
+const TEAM_API_ALIASES = {
+  "gb-eng": ["England"],
+  "gb-sct": ["Scotland"],
+  us: ["United States", "USA"],
+  kr: ["South Korea", "Korea Republic"],
+  tr: ["Turkey", "Türkiye"],
+  ci: ["Ivory Coast", "Côte d'Ivoire"],
+  ba: ["Bosnia-Herzegovina", "Bosnia-H.", "Bosnia & Herz."],
+  cd: ["Congo DR", "DR Congo"],
+  cv: ["Cape Verde Islands", "Cape Verde"],
+  ir: ["Iran"],
+  cw: ["Curaçao"]
+};
+
+const API_NAME_TO_CODE = {};
+TEAMS.forEach((t) => {
+  const aliases = new Set([t.name, ...(TEAM_API_ALIASES[t.code] || [])]);
+  aliases.forEach((alias) => {
+    API_NAME_TO_CODE[normalizeTeamName(alias)] = t.code;
+  });
+});
+
+let teamPoints = Object.fromEntries(TEAMS.map((t) => [t.name, 0]));
+let tournamentLive = false;
+
 const flag = (c) => {
   if (SPECIAL[c]) return SPECIAL[c];
   return c.toUpperCase().replace(/./g, (ch) => String.fromCodePoint(127397 + ch.charCodeAt(0)));
@@ -37,6 +64,123 @@ let broadcast = null;
 
 function keyFor(name) {
   return name.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+function normalizeTeamName(name) {
+  return String(name).trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+function apiTeamToCode(team) {
+  if (!team) return null;
+  for (const label of [team.name, team.shortName, team.tla]) {
+    if (!label) continue;
+    const code = API_NAME_TO_CODE[normalizeTeamName(label)];
+    if (code) return code;
+  }
+  return null;
+}
+
+function calculateTeamPoints(matches) {
+  const byCodePts = Object.fromEntries(TEAMS.map((t) => [t.code, 0]));
+
+  for (const m of matches) {
+    if (m.status !== "FINISHED") continue;
+
+    const homeCode = apiTeamToCode(m.homeTeam);
+    const awayCode = apiTeamToCode(m.awayTeam);
+    if (!homeCode || !awayCode) continue;
+
+    const hs = m.score?.fullTime?.home;
+    const aw = m.score?.fullTime?.away;
+
+    if (hs != null && aw != null) {
+      if (hs === aw) {
+        byCodePts[homeCode] += 1;
+        byCodePts[awayCode] += 1;
+      } else if (hs > aw) {
+        byCodePts[homeCode] += 3;
+      } else {
+        byCodePts[awayCode] += 3;
+      }
+    } else if (m.score?.winner === "HOME_TEAM") {
+      byCodePts[homeCode] += 3;
+    } else if (m.score?.winner === "AWAY_TEAM") {
+      byCodePts[awayCode] += 3;
+    } else if (m.score?.winner === "DRAW") {
+      byCodePts[homeCode] += 1;
+      byCodePts[awayCode] += 1;
+    }
+  }
+
+  const byName = {};
+  TEAMS.forEach((t) => {
+    byName[t.name] = byCodePts[t.code] || 0;
+  });
+  return byName;
+}
+
+async function fetchMatchResults() {
+  try {
+    const res = await fetch(FOOTBALL_DATA_API, {
+      headers: { "X-Auth-Token": FOOTBALL_DATA_API_KEY }
+    });
+    if (!res.ok) throw new Error(`API ${res.status}`);
+    const data = await res.json();
+    const matches = data.matches || [];
+    teamPoints = calculateTeamPoints(matches);
+    tournamentLive = matches.some((m) => m.status === "FINISHED");
+    return true;
+  } catch (e) {
+    console.warn("Match fetch failed:", e);
+    return false;
+  }
+}
+
+function renderLeaderboard(state) {
+  $("tournamentBanner").classList.toggle("hidden", tournamentLive);
+
+  const rows = state.players.map((p) => {
+    const holder = findSlotHolder(state.slots, p.name);
+    const codes = p.teams || [];
+    const pts = codes.reduce((sum, c) => {
+      const t = byCode[c];
+      return sum + (t ? (teamPoints[t.name] || 0) : 0);
+    }, 0);
+    return {
+      name: p.name,
+      slot: holder?.slot ?? "—",
+      teams: codes,
+      pts
+    };
+  }).sort((a, b) => b.pts - a.pts || (Number(a.slot) || 99) - (Number(b.slot) || 99));
+
+  let rank = 1;
+  rows.forEach((r, i) => {
+    if (i > 0 && r.pts < rows[i - 1].pts) rank = i + 1;
+    r.rank = rank;
+  });
+
+  const list = $("leaderboardList");
+  if (!rows.length) {
+    list.innerHTML = '<div class="empty">Draw teams to appear on the leaderboard.</div>';
+    return;
+  }
+
+  list.innerHTML = rows.map((r) => {
+    const teamsHtml = r.teams.map((c) => {
+      const t = byCode[c];
+      if (!t) return "";
+      const tp = teamPoints[t.name] || 0;
+      return `<span class="pill" title="${tp} pt${tp === 1 ? "" : "s"}"><span class="fl">${flag(t.code)}</span>${t.name}</span>`;
+    }).join("");
+    const me = MY_NAME && keyFor(r.name) === keyFor(MY_NAME) ? " is-me" : "";
+    return `<div class="leaderboard-row${me}">
+      <span class="lb-rank">${r.rank}</span>
+      <span class="lb-name">${escapeHtml(r.name)}<small>Slot ${r.slot}</small></span>
+      <span class="lb-teams">${teamsHtml}</span>
+      <span class="lb-pts">${r.pts}</span>
+    </div>`;
+  }).join("");
 }
 
 function defaultState() {
@@ -379,11 +523,13 @@ function applyPhaseUI(state) {
   $("playerList").classList.toggle("hidden", isSlots);
   $("remainingSection").classList.toggle("hidden", isSlots);
   $("slotOrderCard").classList.toggle("hidden", isSlots);
+  $("leaderboardCard").classList.toggle("hidden", isSlots);
   $("readyBanner").classList.toggle("hidden", !(isSlots && allSlotsFilled));
 
   if (isSlots) {
     renderSlotBoard(state);
   } else {
+    renderLeaderboard(state);
     renderSlotLadder(state, state.players);
     renderTeamBoard(state);
   }
@@ -726,6 +872,17 @@ function confettiBurst() {
   })();
 }
 
+async function pollMatchResults() {
+  const ok = await fetchMatchResults();
+  if (!ok) return;
+  try {
+    const state = await loadState();
+    if (state.phase === "teams") {
+      renderLeaderboard(state);
+    }
+  } catch { /* ignore */ }
+}
+
 async function boot() {
   applyAdminUI();
 
@@ -733,8 +890,10 @@ async function boot() {
 
   try {
     await ensureBin();
+    await fetchMatchResults();
     await refresh();
     setInterval(refresh, 6000);
+    setInterval(pollMatchResults, 5 * 60 * 1000);
   } catch (e) {
     console.error(e);
     $("tagline").textContent = "Couldn't connect — refresh to retry.";
